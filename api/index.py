@@ -197,7 +197,7 @@ def send_email(to_email, subject, body):
                 "Content-Type": "application/json"
             },
             json={
-                "from": "Vital Arc <onboarding@resend.dev>",
+                "from": "Vital Arc <hello@vital.arc.com>",
                 "to": to_email,
                 "subject": subject,
                 "html": body
