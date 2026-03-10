@@ -582,10 +582,12 @@ def debug_route():
 
     return jsonify({
         "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
+        "DB_FILE_PATH": DB_FILE,
+        "DB_EXISTS": os.path.exists(DB_FILE),
         "DB_SAMPLES": samples,
         "DB_STATS": db_stats,
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-11_v1_DEBUG"
+        "VAR_DEPLOY_STAMP": "2026-03-11_v2_FULL_DEBUG"
     })
 
 LOGIN_TMPL = """<!DOCTYPE html><html><head><title>Login - Vital Arc</title>
