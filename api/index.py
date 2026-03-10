@@ -555,6 +555,7 @@ def debug_route():
     cur = con.cursor()
     
     db_stats = {}
+    samples = []
     try:
         cur.execute("SELECT COUNT(*) FROM reminders")
         db_stats['total_reminders'] = cur.fetchone()[0]
@@ -562,15 +563,29 @@ def debug_route():
         db_stats['pending_reminders'] = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM users")
         db_stats['total_users'] = cur.fetchone()[0]
+        
+        # New: Get some sample reminders and check their email status
+        cur.execute("""
+            SELECT r.id, r.username, r.email_sent, u.email 
+            FROM reminders r 
+            LEFT JOIN users u ON r.username = u.username 
+            LIMIT 5
+        """)
+        for d in cur.fetchall():
+            samples.append({
+                "id": d[0], "user": d[1], "sent": d[2], "has_email": bool(d[3])
+            })
+
     except Exception as e:
         db_stats['error'] = str(e)
     con.close()
 
     return jsonify({
         "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
+        "DB_SAMPLES": samples,
         "DB_STATS": db_stats,
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-10_v5_RESEND_API"
+        "VAR_DEPLOY_STAMP": "2026-03-11_v1_DEBUG"
     })
 
 LOGIN_TMPL = """<!DOCTYPE html><html><head><title>Login - Vital Arc</title>
