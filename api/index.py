@@ -267,8 +267,9 @@ def send_email(to_email, subject, body):
         msg["To"]      = to_email
         msg.attach(MIMEText(body, "html"))
         # Using smtp.googlemail.com as an alternative which sometimes works better
-        # Try Port 465 (SSL) which is often more reliable on restricted networks
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+        # Try Port 2525 (Alternative) which is often open when 587/465 are blocked
+        with smtplib.SMTP("smtp.gmail.com", 2525, timeout=20) as server:
+            server.starttls()
             server.login(GMAIL_USER, GMAIL_PASS)
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
         return True, "Success"
@@ -286,7 +287,7 @@ def send_email(to_email, subject, body):
 def debug_route():
     # Test connectivity to Gmail SMTP
     connectivity = {}
-    for port in [587, 465]:
+    for port in [587, 465, 2525]:
         try:
             with socket.create_connection(("smtp.gmail.com", port), timeout=5):
                 connectivity[f"port_{port}"] = "REACHABLE"
@@ -314,7 +315,7 @@ def debug_route():
         },
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "SERVER_TIME_IST": (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-10_v3_PORT465"
+        "VAR_DEPLOY_STAMP": "2026-03-10_v4_PORT2525"
     })
 
 # ================================
