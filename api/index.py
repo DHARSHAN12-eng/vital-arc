@@ -184,18 +184,7 @@ def handle_exception(e):
         return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
     return f"<h2>Internal Server Error</h2><pre>{traceback.format_exc()}</pre>", 500
 
-@app.route("/api/debug")
-def debug_route():
-    # Return status of critical variables (masking sensitive info)
-    return jsonify({
-        "CRON_SECRET_SET": os.getenv("CRON_SECRET") is not None,
-        "GMAIL_USER_SET": os.getenv("GMAIL_USER") is not None,
-        "GMAIL_PASS_SET": os.getenv("GMAIL_PASS") is not None,
-        "DB_FILE": DB_FILE,
-        "DB_EXISTS": os.path.exists(DB_FILE),
-        "SESSION_USER": session.get("user"),
-        "SERVER_TIME_UTC": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+
 
 # ================================
 # SCHEDULER
