@@ -562,6 +562,31 @@ def trigger_reminders():
 # ================================
 # DEBUG ROUTE
 # ================================
+@app.route("/api/debug")
+def debug_route():
+    import sqlite3
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    
+    db_stats = {}
+    try:
+        cur.execute("SELECT COUNT(*) FROM reminders")
+        db_stats['total_reminders'] = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM reminders WHERE status = 'pending'")
+        db_stats['pending_reminders'] = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM users")
+        db_stats['total_users'] = cur.fetchone()[0]
+    except Exception as e:
+        db_stats['error'] = str(e)
+    con.close()
+
+    return jsonify({
+        "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
+        "DB_STATS": db_stats,
+        "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "VAR_DEPLOY_STAMP": "2026-03-10_v5_RESEND_API"
+    })
+
 LOGIN_TMPL = """<!DOCTYPE html><html><head><title>Login - Vital Arc</title>
 <style>*{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',sans-serif;height:100vh;display:flex;align-items:center;
