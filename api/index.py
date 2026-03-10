@@ -505,21 +505,30 @@ def trigger_reminders():
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     
-    # Simple logic: Send one pending reminder at a time or all? 
-    # Let's send all pending ones for simplicity.
-    cur.execute("SELECT * FROM reminders WHERE status = 'pending'")
+    # Join with users table to get the email address
+    cur.execute("""
+        SELECT r.*, u.email 
+        FROM reminders r 
+        JOIN users u ON r.username = u.username 
+        WHERE r.email_sent = 0
+    """)
     reminders = cur.fetchall()
     
     success_count = 0
     errors = []
     
     for r in reminders:
+        # Skip if user has no email set
+        if not r['email']:
+            errors.append(f"ID {r['id']}: No email address listed for user {r['username']}")
+            continue
+
         subject = "VitalArc Health Reminder"
         body = f"Hello! This is your reminder: {r['message']}"
         success, error_msg = send_email(r['email'], subject, body)
         
         if success:
-            cur.execute("UPDATE reminders SET status = 'sent' WHERE id = ?", (r['id'],))
+            cur.execute("UPDATE reminders SET email_sent = 1 WHERE id = ?", (r['id'],))
             success_count += 1
         else:
             errors.append(f"ID {r['id']}: {error_msg}")
@@ -549,7 +558,7 @@ def debug_route():
     try:
         cur.execute("SELECT COUNT(*) FROM reminders")
         db_stats['total_reminders'] = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM reminders WHERE status = 'pending'")
+        cur.execute("SELECT COUNT(*) FROM reminders WHERE email_sent = 0")
         db_stats['pending_reminders'] = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM users")
         db_stats['total_users'] = cur.fetchone()[0]
