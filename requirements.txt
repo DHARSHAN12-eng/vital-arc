@@ -1,0 +1,7 @@
+flask
+requests
+werkzeug
+scikit-learn
+reportlab
+pandas
+numpy
