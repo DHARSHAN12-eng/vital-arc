@@ -235,6 +235,29 @@ def cron_reminders():
     check_reminders()
     return jsonify({"status": "success", "message": "Reminders checked"})
 
+@app.route("/api/test_email", methods=["GET"])
+def test_email_route():
+    secret = request.args.get("secret")
+    if secret != os.getenv("CRON_SECRET"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    
+    # Try getting the current user's email from session or query
+    u = session.get("user")
+    con = get_db()
+    user_row = con.execute("SELECT email FROM users WHERE username=?", (u,)).fetchone() if u else None
+    con.close()
+    
+    target_email = user_row["email"] if user_row and user_row["email"] else os.getenv("GMAIL_USER")
+    
+    if not target_email:
+        return jsonify({"status": "error", "message": "No target email found to test"}), 400
+        
+    res = send_email(target_email, "Vital Arc - Connectivity Test", "Your email configuration is working!")
+    if res:
+        return jsonify({"status": "success", "message": f"Test email sent to {target_email}"})
+    else:
+        return jsonify({"status": "error", "message": "Failed to send email. Check Render logs for trace."})
+
 # ================================
 # HELPERS
 # ================================
