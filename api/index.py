@@ -252,9 +252,12 @@ def check_reminders():
                     body = ("<h2 style='color:#667eea'>Vital Arc Reminder</h2>"
                             "<p>Hello <b>" + uname + "</b>,</p><p>" + msg + "</p>"
                             "<p>Stay healthy! Log in to check your heart health today.</p>")
-                    if send_email(email, "Vital Arc Reminder", body):
+                    ok, err = send_email(email, "Vital Arc Reminder", body)
+                    if ok:
                         con.execute("UPDATE reminders SET email_sent=1 WHERE id=?", (rid,))
                         print(f"DEBUG: Email sent to {email}")
+                    else:
+                        print(f"DEBUG: Email FAILED to {email}: {err}")
         
         con.commit()
         con.close()
@@ -264,8 +267,9 @@ def check_reminders():
 
 def send_email(to_email, subject, body):
     if not GMAIL_USER or not GMAIL_PASS:
-        print("Email error: GMAIL_USER or GMAIL_PASS not set in environment.")
-        return False
+        msg = "Email error: GMAIL_USER or GMAIL_PASS not set in environment."
+        print(msg)
+        return False, msg
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -275,11 +279,16 @@ def send_email(to_email, subject, body):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
             server.login(GMAIL_USER, GMAIL_PASS)
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        return True
+        return True, "Success"
+    except smtplib.SMTPAuthenticationError:
+        err = "Authentication failed. Check your App Password and skip the spaces."
+        print(f"SMTP AUTH ERROR for {to_email}: {err}")
+        return False, err
     except Exception as e:
-        print(f"Email error for {to_email}: {e}")
+        err = f"SMTP error: {str(e)}"
+        print(f"Email error for {to_email}: {err}")
         traceback.print_exc()
-        return False
+        return False, err
 
 @app.route("/api/test_email", methods=["GET"])
 def test_email_route():
@@ -307,11 +316,16 @@ def test_email_route():
     if not target_email:
         return jsonify({"status": "error", "message": "No target email found. Set your profile email or GMAIL_USER."}), 400
         
-    res = send_email(target_email, "Vital Arc - Connectivity Test", "Your email configuration is working!")
+    res, err = send_email(target_email, "Vital Arc - Connectivity Test", "Your email configuration is working!")
     if res:
         return jsonify({"status": "success", "message": f"Test email sent to {target_email}"})
     else:
-        return jsonify({"status": "error", "message": "SMTP Failed. check GMAIL_PASS (App Password) and GMAIL_USER."}), 500
+        return jsonify({
+            "status": "error", 
+            "message": "SMTP Failed",
+            "details": err,
+            "hint": "Ensure GMAIL_PASS is a 16-character App Password without spaces."
+        }), 500
 
 # ================================
 # HELPERS
@@ -1496,9 +1510,12 @@ def reminders():
             con.commit()
         elif action == "test_email":
             if user_email:
-                ok = send_email(user_email, "Vital Arc Reminder Test",
+                ok, err = send_email(user_email, "Vital Arc Reminder Test",
                                 "<h2>Hello " + u + "!</h2><p>Your Vital Arc email reminders are working correctly.</p>")
-                msg = "Test email sent!" if ok else "Email failed. SMTP connection error or blocked by Gmail. Check your App Password."
+                if ok:
+                    msg = "Test email sent!"
+                else:
+                    msg = f"Email failed. {err}"
             else:
                 msg = "No email set. Update your profile first."
 
