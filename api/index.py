@@ -238,11 +238,12 @@ def check_reminders():
         print(f"DEBUG: Checking reminders. UTC: {check_times[0]}, IST: {check_times[1]}")
         
         for d, t in check_times:
+            # Catch missed reminders: check for anything today or in the past that hasn't been sent.
             rows = con.execute(
                 "SELECT r.id,r.username,r.message,u.email FROM reminders r "
                 "JOIN users u ON r.username=u.username "
-                "WHERE r.remind_date=? AND r.remind_time=? AND r.email_sent=0",
-                (d, t)).fetchall()
+                "WHERE (r.remind_date < ? OR (r.remind_date = ? AND r.remind_time <= ?)) AND r.email_sent=0",
+                (d, d, t)).fetchall()
             
             for row in rows:
                 rid, uname, msg, email = row["id"], row["username"], row["message"], row["email"]
@@ -1497,7 +1498,7 @@ def reminders():
             if user_email:
                 ok = send_email(user_email, "Vital Arc Reminder Test",
                                 "<h2>Hello " + u + "!</h2><p>Your Vital Arc email reminders are working correctly.</p>")
-                msg = "Test email sent!" if ok else "Email failed. Check GMAIL_USER / GMAIL_PASS in config."
+                msg = "Test email sent!" if ok else "Email failed. SMTP connection error or blocked by Gmail. Check your App Password."
             else:
                 msg = "No email set. Update your profile first."
 
