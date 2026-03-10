@@ -1425,9 +1425,11 @@ def reminders():
     user_row = con.execute("SELECT email FROM users WHERE username=?", (u,)).fetchone()
     if user_row:
         user_email = user_row["email"] or ""
+    print(f"DEBUG: Reminders page for user={u}, fetched email='{user_email}'")
 
     if request.method == "POST":
         action = request.form.get("action")
+        print(f"DEBUG: Reminders POST action={action}")
         if action == "add":
             rdate = request.form["remind_date"]
             rtime = request.form["remind_time"]
@@ -1657,17 +1659,20 @@ def profile():
 
     if request.method == "POST":
         action = request.form.get("action")
+        print(f"DEBUG: Profile POST action={action} for user={u}")
         if action == "update_info":
             email  = request.form.get("email", "")
             height = float(request.form.get("height_cm") or 0)
             weight = float(request.form.get("weight_kg") or 0)
             dob    = request.form.get("dob", "")
             phone  = request.form.get("phone", "")
+            print(f"DEBUG: Updating profile info: email={email}, height={height}, weight={weight}")
             con.execute(
                 "UPDATE users SET email=?,height_cm=?,weight_kg=?,dob=?,phone=? WHERE username=?",
                 (email, height, weight, dob, phone, u))
             con.commit()
             msg = "profile_saved"
+            print("DEBUG: Profile update committed.")
         elif action == "change_pass":
             cur_p = request.form.get("current_pass", "")
             new_p = request.form.get("new_pass", "")
