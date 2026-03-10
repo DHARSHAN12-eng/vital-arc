@@ -292,43 +292,6 @@ def send_email(to_email, subject, body):
         traceback.print_exc()
         return False, err
 
-@app.route("/api/test_email", methods=["GET"])
-def test_email_route():
-    secret = request.args.get("secret")
-    cron_secret = os.getenv("CRON_SECRET")
-    
-    if not cron_secret:
-        return jsonify({"status": "error", "message": "CRON_SECRET not set on server"}), 500
-        
-    if secret != cron_secret:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    
-    u = session.get("user")
-    target_email = None
-    if u:
-        con = get_db()
-        user_row = con.execute("SELECT email FROM users WHERE username=?", (u,)).fetchone()
-        con.close()
-        if user_row:
-            target_email = user_row["email"]
-    
-    if not target_email:
-        target_email = os.getenv("GMAIL_USER")
-    
-    if not target_email:
-        return jsonify({"status": "error", "message": "No target email found. Set your profile email or GMAIL_USER."}), 400
-        
-    res, err = send_email(target_email, "Vital Arc - Connectivity Test", "Your email configuration is working!")
-    if res:
-        return jsonify({"status": "success", "message": f"Test email sent to {target_email}"})
-    else:
-        return jsonify({
-            "status": "error", 
-            "message": "SMTP Failed",
-            "details": err,
-            "hint": "Ensure GMAIL_PASS is a 16-character App Password without spaces."
-        }), 500
-
 # ================================
 # HELPERS
 # ================================
@@ -1510,16 +1473,6 @@ def reminders():
         elif action == "delete":
             con.execute("DELETE FROM reminders WHERE id=? AND username=?", (request.form["rid"], u))
             con.commit()
-        elif action == "test_email":
-            if user_email:
-                ok, err = send_email(user_email, "Vital Arc Reminder Test",
-                                "<h2>Hello " + u + "!</h2><p>Your Vital Arc email reminders are working correctly.</p>")
-                if ok:
-                    msg = "Test email sent!"
-                else:
-                    msg = f"Email failed. {err}"
-            else:
-                msg = "No email set. Update your profile first."
 
     upcoming = con.execute("SELECT id,remind_date,remind_time,message,email_sent FROM reminders "
                            "WHERE username=? ORDER BY remind_date,remind_time", (u,)).fetchall()
@@ -1566,10 +1519,6 @@ def reminders():
         "border-radius:9px;font-size:14px;background:var(--inp);color:var(--text);resize:vertical;'"
         " placeholder='e.g. Time for your weekly heart health checkup!'></textarea>"
         "<button type='submit' class='btn' style='width:100%;margin-top:10px;'>Set Reminder</button>"
-        "</form>"
-        "<form method='post' style='margin-top:10px;'>"
-        "<input type='hidden' name='action' value='test_email'>"
-        "<button type='submit' class='btn btn-outline' style='width:100%;'>Send Test Email</button>"
         "</form>"
         "</div>"
         "<div class='card'>"
