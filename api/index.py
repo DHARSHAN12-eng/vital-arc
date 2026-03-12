@@ -45,22 +45,56 @@ def ensure_startup():
     
     # 1. Train Model
     try:
-        import pandas as pd
+        import csv
+        import numpy as np
         from sklearn.linear_model import LogisticRegression
+        import gc
         
-        print("--- [LAZY STARTUP] Loading data and training model... ---")
-        temp_df = pd.read_csv(DATA_PATH)
-        temp_X  = temp_df.drop("target", axis=1)
-        temp_y  = temp_df["target"]
-        temp_X  = temp_X.fillna(temp_X.median())
+        print("--- [LAZY STARTUP] Loading data (pure CSV)... ---")
+        data = []
+        with open(DATA_PATH, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                data.append(row)
         
+        # Extract target and features
+        target = [int(r["target"]) for r in data]
+        # Get feature names (all except target)
+        features_list = [k for k in data[0].keys() if k != "target"]
+        
+        # Convert to numpy and handle missing values
+        X_matrix = []
+        for r in data:
+            row_vals = []
+            for f_name in features_list:
+                val = r[f_name]
+                try: 
+                    row_vals.append(float(val)) if val else row_vals.append(np.nan)
+                except: 
+                    row_vals.append(np.nan)
+            X_matrix.append(row_vals)
+        
+        X_array = np.array(X_matrix)
+        y_array = np.array(target)
+        
+        # Handle NaNs manually (simple mean/median replacement)
+        col_means = np.nanmedian(X_array, axis=0)
+        inds = np.where(np.isnan(X_array))
+        X_array[inds] = np.take(col_means, inds[1])
+        
+        print("--- [LAZY STARTUP] Training model (LogisticRegression)... ---")
         temp_model = LogisticRegression(max_iter=3000)
-        temp_model.fit(temp_X, temp_y)
+        temp_model.fit(X_array, y_array)
         
         MODEL = temp_model
-        COL_NAMES = list(temp_X.columns)
+        COL_NAMES = features_list
         print("--- [LAZY STARTUP] Model training complete. ---")
+        
+        # Force cleanup
+        del data, X_matrix, X_array, y_array, target
+        gc.collect()
     except Exception as e:
+
         print(f"--- [LAZY STARTUP] ERROR TRAINING MODEL: {e} ---")
         # Keep placeholders if it fails
         if 'MODEL' not in globals() or MODEL is None:
