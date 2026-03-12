@@ -119,11 +119,38 @@ def init_db():
         username TEXT, timestamp TEXT, weight_kg REAL,
         height_cm REAL, bmi REAL, category TEXT
     );
+    CREATE TABLE IF NOT EXISTS site_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        visit_date TEXT, 
+        visit_count INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS user_logins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT, login_time TEXT
+    );
+    CREATE TABLE IF NOT EXISTS admin_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT
+    );
     """)
     con.commit()
     con.close()
 
 init_db()
+
+def setup_admin():
+    try:
+        con = get_db()
+        # Add default admin if not exists (username: admin, password: adminpassword123)
+        admin_pass = generate_password_hash("adminpassword123")
+        con.execute("INSERT OR IGNORE INTO admin_users (username, password) VALUES (?, ?)", ("admin", admin_pass))
+        con.commit()
+        con.close()
+    except Exception as e:
+        print("Admin setup error:", e)
+
+setup_admin()
 
 def migrate_db():
     con = get_db()
@@ -135,6 +162,7 @@ def migrate_db():
         "ALTER TABLE users ADD COLUMN dob TEXT DEFAULT ''",
         "ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''",
         "ALTER TABLE users ADD COLUMN photo TEXT DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN last_login TEXT DEFAULT ''",
         "ALTER TABLE reminders ADD COLUMN remind_date TEXT DEFAULT ''",
         "ALTER TABLE reminders ADD COLUMN remind_time TEXT DEFAULT ''",
         "ALTER TABLE reminders ADD COLUMN message TEXT DEFAULT ''",
@@ -178,9 +206,25 @@ def handle_exception(e):
         return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
     return f"<h2>Internal Server Error</h2><pre>{traceback.format_exc()}</pre>", 500
 
-
-
 # ================================
+# VISIT TRACKING MIDDLEWARE
+# ================================
+@app.before_request
+def track_visits():
+    # Only track GET requests to main HTML routes, not APIs or static files
+    if request.method == "GET" and not request.path.startswith("/api/") and not request.path.startswith("/static/"):
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            con = get_db()
+            row = con.execute("SELECT id, visit_count FROM site_visits WHERE visit_date=?", (today,)).fetchone()
+            if row:
+                con.execute("UPDATE site_visits SET visit_count = visit_count + 1 WHERE id=?", (row["id"],))
+            else:
+                con.execute("INSERT INTO site_visits (visit_date, visit_count) VALUES (?, 1)", (today,))
+            con.commit()
+            con.close()
+        except Exception as e:
+            print("Tracking error:", e)
 # EMAIL HELPER
 # ================================
 def send_email(to_email, subject, body):
@@ -693,6 +737,16 @@ def login():
     con.close()
     if row and check_password_hash(row["password"], p):
         session["user"] = u
+        try:
+            # Track user login
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            con2 = get_db()
+            con2.execute("INSERT INTO user_logins (username, login_time) VALUES (?, ?)", (u, ts))
+            con2.execute("UPDATE users SET last_login=? WHERE username=?", (ts, u))
+            con2.commit()
+            con2.close()
+        except Exception as e:
+            print("Login tracking error:", e)
         return redirect("/dashboard")
     return render_template_string(LOGIN_TMPL, error="Invalid username or password.")
 
@@ -2535,9 +2589,268 @@ def nearby():
     )
     return base_html("Nearby Hospitals", content, u, dark)
 
+
+# ====================================================
+# ADMIN PANEL  (only YOU can access this)
+# Credentials:  username = admin   password = adminpassword123
+# Login URL  :  /admin_login
+# Dashboard  :  /admin_panel
+# Export CSV :  /admin_export_csv
+# ====================================================
+
+# Hard-coded admin credentials (only you know these)
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "adminpassword123"
+
+ADMIN_LOGIN_CSS = """<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;
+justify-content:center;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);}
+.box{background:#1e2130;padding:44px;border-radius:20px;
+box-shadow:0 20px 60px rgba(0,0,0,.6);width:420px;border:1px solid #2a2d3e;}
+.logo-wrap{text-align:center;margin-bottom:20px;font-size:48px;}
+h1{text-align:center;color:#e94560;margin-bottom:4px;font-size:26px;}
+.sub{text-align:center;color:#888;margin-bottom:26px;font-size:13px;letter-spacing:1px;}
+input{width:100%;padding:13px;margin:8px 0;border:2px solid #2a2d3e;border-radius:9px;
+font-size:14px;background:#252840;color:#e0e0e0;transition:.2s;}
+input:focus{outline:none;border-color:#e94560;}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#e94560,#c62a47);color:#fff;
+border:none;border-radius:9px;font-size:15px;font-weight:bold;cursor:pointer;margin-top:10px;}
+.err{background:#3d1a1a;color:#ff6b6b;padding:10px;border-radius:8px;margin-bottom:14px;text-align:center;border:1px solid #c62a47;}
+.badge{display:inline-block;background:#e9456022;color:#e94560;border:1px solid #e9456044;
+border-radius:20px;padding:3px 12px;font-size:11px;letter-spacing:1px;margin-bottom:20px;}
+</style>"""
+
+ADMIN_LOGIN_TMPL = ADMIN_LOGIN_CSS + """<!DOCTYPE html><html><body>
+<div class='box'>
+<div class='logo-wrap'>🛡️</div>
+<div style='text-align:center'><span class='badge'>ADMIN ONLY</span></div>
+<h1>Admin Panel</h1>
+<div class='sub'>VITAL ARC · RESTRICTED ACCESS</div>
+{% if error %}<div class='err'>{{ error }}</div>{% endif %}
+<form method='post' action='/admin_login'>
+<input name='username' placeholder='Admin Username' required>
+<input type='password' name='password' placeholder='Admin Password' required>
+<button class='btn' type='submit'>🔐 Enter Admin Panel</button>
+</form>
+</div>
+</body></html>"""
+
+@app.route("/admin_login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        u = request.form.get("username", "")
+        p = request.form.get("password", "")
+        if u == ADMIN_USERNAME and p == ADMIN_PASSWORD:
+            session["admin_user"] = ADMIN_USERNAME
+            return redirect("/admin_panel")
+        return render_template_string(ADMIN_LOGIN_TMPL, error="❌ Incorrect admin credentials. Access denied.")
+    if "admin_user" in session:
+        return redirect("/admin_panel")
+    return render_template_string(ADMIN_LOGIN_TMPL, error=None)
+
+@app.route("/admin_logout")
+def admin_logout():
+    session.pop("admin_user", None)
+    return redirect("/admin_login")
+
+@app.route("/admin_panel")
+def admin_panel():
+    if "admin_user" not in session:
+        return redirect("/admin_login")
+
+    con = get_db()
+
+    # --- Stats ---
+    total_users   = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    total_logins  = con.execute("SELECT COUNT(*) FROM user_logins").fetchone()[0]
+    total_preds   = con.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+
+    # Total visits all time
+    row_visits = con.execute("SELECT SUM(visit_count) FROM site_visits").fetchone()
+    total_visits  = row_visits[0] if row_visits and row_visits[0] else 0
+
+    # Visits today
+    today = datetime.now().strftime("%Y-%m-%d")
+    row_today = con.execute("SELECT visit_count FROM site_visits WHERE visit_date=?", (today,)).fetchone()
+    today_visits = row_today["visit_count"] if row_today else 0
+
+    # Users list with last login
+    users = con.execute(
+        "SELECT username, email, last_login FROM users ORDER BY id DESC"
+    ).fetchall()
+
+    # Recent logins
+    recent_logins = con.execute(
+        "SELECT username, login_time FROM user_logins ORDER BY id DESC LIMIT 50"
+    ).fetchall()
+
+    # Daily visit chart data (last 14 days)
+    visit_data = con.execute(
+        "SELECT visit_date, visit_count FROM site_visits ORDER BY visit_date DESC LIMIT 14"
+    ).fetchall()
+    con.close()
+
+    # Build users table rows
+    user_rows = ""
+    for u in users:
+        last = str(u["last_login"]) if u["last_login"] else "<span style='color:#555;'>Never</span>"
+        email = str(u["email"]) if u["email"] else "<span style='color:#555;'>—</span>"
+        user_rows += (
+            "<tr>"
+            "<td style='font-weight:bold;color:#a29bfe;'>" + str(u["username"]) + "</td>"
+            "<td>" + email + "</td>"
+            "<td>" + last + "</td>"
+            "</tr>"
+        )
+
+    # Build logins table rows
+    login_rows = ""
+    for l in recent_logins:
+        login_rows += (
+            "<tr>"
+            "<td style='color:#667eea;font-weight:bold;'>" + str(l["username"]) + "</td>"
+            "<td>" + str(l["login_time"]) + "</td>"
+            "</tr>"
+        )
+
+    # Build visit chart bars
+    chart_html = ""
+    max_v = max((v["visit_count"] for v in visit_data), default=1)
+    for v in reversed(list(visit_data)):
+        pct = int(v["visit_count"] / max(max_v, 1) * 100)
+        chart_html += (
+            "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:40px;'>"
+            "<div style='font-size:10px;color:#888;'>" + str(v["visit_count"]) + "</div>"
+            "<div style='background:linear-gradient(180deg,#667eea,#764ba2);border-radius:4px 4px 0 0;"
+            "width:100%;height:" + str(max(pct * 1.2, 4)) + "px;transition:height .3s;'></div>"
+            "<div style='font-size:9px;color:#666;writing-mode:vertical-rl;text-orientation:mixed;'>"
+            + str(v["visit_date"])[5:] + "</div>"
+            "</div>"
+        )
+
+    ADMIN_CSS = """<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;
+background:#1e2130;padding:16px 24px;border-radius:14px;border:1px solid #2a2d3e;}
+.topbar h1{color:#e94560;font-size:22px;display:flex;align-items:center;gap:10px;}
+.topbar-right{display:flex;gap:12px;align-items:center;}
+.badge-admin{background:#e9456022;color:#e94560;border:1px solid #e9456044;border-radius:20px;padding:4px 14px;font-size:12px;font-weight:bold;}
+.btn-lg{padding:10px 20px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:bold;cursor:pointer;text-decoration:none;display:inline-block;}
+.btn-danger{background:linear-gradient(135deg,#e94560,#c62a47);}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+.stat-card{background:#1e2130;padding:20px;border-radius:14px;border:1px solid #2a2d3e;text-align:center;}
+.stat-card h4{color:#888;font-size:12px;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;}
+.stat-card .val{font-size:36px;font-weight:bold;background:linear-gradient(135deg,#667eea,#a29bfe);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.card{background:#1e2130;padding:24px;border-radius:14px;border:1px solid #2a2d3e;margin-bottom:20px;}
+.card h3{color:#a29bfe;margin-bottom:16px;font-size:16px;display:flex;align-items:center;gap:8px;}
+table{width:100%;border-collapse:collapse;}
+th{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:12px;text-align:left;font-size:13px;}
+td{padding:11px;border-bottom:1px solid #2a2d3e;font-size:13px;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(102,126,234,.07);}
+.chart-wrap{display:flex;align-items:flex-end;gap:6px;height:140px;padding-bottom:8px;overflow-x:auto;}
+@media(max-width:800px){.g4{grid-template-columns:1fr 1fr;}}
+</style>"""
+
+    HTML = (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Admin Panel - Vital Arc</title>"
+        + ADMIN_CSS +
+        "</head><body><div class='wrap'>"
+        "<div class='topbar'>"
+        "<h1>🛡️ Admin Panel</h1>"
+        "<div class='topbar-right'>"
+        "<span class='badge-admin'>ADMIN: " + ADMIN_USERNAME + "</span>"
+        "<a href='/admin_export_csv' class='btn-lg'>⬇ Export CSV</a>"
+        "<a href='/admin_logout' class='btn-lg btn-danger'>Logout</a>"
+        "</div></div>"
+
+        "<div class='g4'>"
+        "<div class='stat-card'><h4>Total Users</h4><div class='val'>" + str(total_users) + "</div></div>"
+        "<div class='stat-card'><h4>Total Logins</h4><div class='val'>" + str(total_logins) + "</div></div>"
+        "<div class='stat-card'><h4>Total Visits</h4><div class='val'>" + str(total_visits) + "</div></div>"
+        "<div class='stat-card'><h4>Visits Today</h4><div class='val'>" + str(today_visits) + "</div></div>"
+        "</div>"
+
+        "<div class='card'>"
+        "<h3>📊 Daily Site Visits (Last 14 Days)</h3>"
+        "<div class='chart-wrap'>" + (chart_html if chart_html else "<p style='color:#555;'>No visit data yet.</p>") + "</div>"
+        "</div>"
+
+        "<div class='card'>"
+        "<h3>👥 All Registered Users (" + str(total_users) + ")</h3>"
+        "<div style='overflow-x:auto;'><table>"
+        "<thead><tr><th>Username</th><th>Email</th><th>Last Login</th></tr></thead>"
+        "<tbody>" + (user_rows if user_rows else "<tr><td colspan='3' style='color:#555;text-align:center;'>No users yet.</td></tr>") + "</tbody>"
+        "</table></div></div>"
+
+        "<div class='card'>"
+        "<h3>🔐 Recent Login Activity (Last 50)</h3>"
+        "<div style='overflow-x:auto;'><table>"
+        "<thead><tr><th>Username</th><th>Login Time</th></tr></thead>"
+        "<tbody>" + (login_rows if login_rows else "<tr><td colspan='2' style='color:#555;text-align:center;'>No logins recorded yet.</td></tr>") + "</tbody>"
+        "</table></div></div>"
+
+        "<div style='text-align:center;color:#555;font-size:12px;padding:20px;'>"
+        "Vital Arc Admin Panel · Only you can see this page"
+        "</div>"
+
+        "</div></body></html>"
+    )
+    return HTML
+
+@app.route("/admin_export_csv")
+def admin_export_csv():
+    if "admin_user" not in session:
+        return redirect("/admin_login")
+
+    con = get_db()
+    users     = con.execute("SELECT username, email, last_login FROM users ORDER BY id").fetchall()
+    logins    = con.execute("SELECT username, login_time FROM user_logins ORDER BY id").fetchall()
+    visits    = con.execute("SELECT visit_date, visit_count FROM site_visits ORDER BY visit_date").fetchall()
+    con.close()
+
+    out = io.StringIO()
+    w = csv.writer(out)
+
+    w.writerow(["=== VITAL ARC ADMIN REPORT ===", "", "Generated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    w.writerow([])
+
+    w.writerow(["--- REGISTERED USERS ---"])
+    w.writerow(["Username", "Email", "Last Login"])
+    for u in users:
+        w.writerow([u["username"], u["email"] or "", u["last_login"] or "Never"])
+    w.writerow([])
+
+    w.writerow(["--- LOGIN HISTORY ---"])
+    w.writerow(["Username", "Login Time"])
+    for l in logins:
+        w.writerow([l["username"], l["login_time"]])
+    w.writerow([])
+
+    w.writerow(["--- DAILY SITE VISITS ---"])
+    w.writerow(["Date", "Visit Count"])
+    for v in visits:
+        w.writerow([v["visit_date"], v["visit_count"]])
+
+    out.seek(0)
+    fname = "vitalarc_admin_report_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
+    return send_file(
+        io.BytesIO(out.read().encode()),
+        as_attachment=True,
+        download_name=fname,
+        mimetype="text/csv"
+    )
+
+
 if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 5000))
 
     app.run(host='0.0.0.0', port=port)
+
 
