@@ -3,8 +3,6 @@
 # Single Jupyter Notebook Cell
 # ===============================
 
-
-
 import os
 import io
 import csv
@@ -12,18 +10,12 @@ import sqlite3
 import traceback
 from datetime import datetime, timezone, timedelta
 
-import numpy as np
-import pandas as pd
-
 from flask import Flask, request, redirect, render_template_string, session, send_file, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
-from sklearn.linear_model import LogisticRegression
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+# Heavy imports moved to function scope:
+# pd, np, LogisticRegression, reportlab
+
 
 # Create Flask app
 app = Flask(__name__)
@@ -53,6 +45,9 @@ def ensure_startup():
     
     # 1. Train Model
     try:
+        import pandas as pd
+        from sklearn.linear_model import LogisticRegression
+        
         print("--- [LAZY STARTUP] Loading data and training model... ---")
         temp_df = pd.read_csv(DATA_PATH)
         temp_X  = temp_df.drop("target", axis=1)
@@ -68,9 +63,10 @@ def ensure_startup():
     except Exception as e:
         print(f"--- [LAZY STARTUP] ERROR TRAINING MODEL: {e} ---")
         # Keep placeholders if it fails
-        if 'MODEL' not in globals():
+        if 'MODEL' not in globals() or MODEL is None:
             MODEL = None
             COL_NAMES = []
+
 
     # 2. Database Checks
     try:
@@ -237,8 +233,16 @@ def get_dark(u):
 # PDF GENERATION
 # ================================
 def generate_pdf(username, pd_data):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    
     buffer = io.BytesIO()
     doc    = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+
     story  = []
     styles = getSampleStyleSheet()
 
@@ -834,6 +838,8 @@ def predict():
         ensure_startup()
         if not MODEL:
             return "Server is still warming up or model failed to load. Please try again in a moment.", 503
+        
+        import numpy as np
         vals = []
         for c in COL_NAMES:
             v = request.form.get(c)
