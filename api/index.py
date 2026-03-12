@@ -281,7 +281,7 @@ def generate_pdf(username, pd_data):
                               textColor=clr, alignment=align,
                               fontName="Helvetica-Bold" if bold else "Helvetica")
 
-    story.append(Paragraph("VITAL ARC - HEART HEALTH PREDICTION REPORT",
+    story.append(Paragraph("VITAL ARC - PREDICTION REPORT",
                             mk_style("t", 22, colors.HexColor("#667eea"))))
     story.append(Spacer(1, 0.2*inch))
 
