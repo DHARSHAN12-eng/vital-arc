@@ -69,6 +69,7 @@ def init_db():
     con.execute("CREATE TABLE IF NOT EXISTS admin_users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS site_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, visit_date TEXT UNIQUE, visit_count INTEGER DEFAULT 0)")
     con.execute("CREATE TABLE IF NOT EXISTS user_logins (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, login_time TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS bmi_records (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, timestamp TEXT, weight_kg REAL, height_cm REAL, bmi REAL, category TEXT)")
     con.commit()
     con.close()
 
@@ -92,6 +93,11 @@ def migrate_db():
             con.commit()
         except:
             pass # Probably already exists
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS bmi_records (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, timestamp TEXT, weight_kg REAL, height_cm REAL, bmi REAL, category TEXT)")
+        con.commit()
+    except:
+        pass
     con.close()
 
 def manual_predict_proba(features):
